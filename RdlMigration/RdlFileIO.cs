@@ -23,9 +23,12 @@ namespace RdlMigration
         private static ConcurrentDictionary<string, string> dataSourceReferenceNameMap;
         private readonly IReportingService2010 server;
 
+        private static Dictionary<string, string> dataSetToDataSourceMapping;
+
         static RdlFileIO()
         {
             dataSourceReferenceNameMap = new ConcurrentDictionary<string, string>();
+            dataSetToDataSourceMapping = new Dictionary<string, string>();
         }
 
         public RdlFileIO(string urlEndpoint)
@@ -197,17 +200,51 @@ namespace RdlMigration
             foreach (var dataSet in server.GetItemReferences(filePath, DataSetConstants.DataSet))
             {
                 var dataSetSourceRef = server.GetItemReferences(dataSet.Reference, DataSourceConstants.DataSource).ElementAt(0);
-                if (!retList.Contains(dataSetSourceRef))
+                var retListReferences = retList.Select(x => x.Reference).ToList();
+                if (!retListReferences.Contains(dataSetSourceRef.Reference))
                 {
                     // rewrite name of datasources referenced from datasets
                     string dataSourceName = SerializeDataSourceName(dataSetSourceRef.Reference);
                     dataSetSourceRef.Name = dataSourceName;
 
+                    dataSetToDataSourceMapping.Add(dataSet.Name, dataSourceName);
+
                     retList.Add(dataSetSourceRef);
                 }
             }
 
+            foreach (var dataSet in server.GetItemReferences(filePath, DataSetConstants.DataSet))
+            {
+                var dataSetSourceRef = server.GetItemReferences(dataSet.Reference, DataSourceConstants.DataSource).ElementAt(0);
+                var dataSourceConnectionString = server.GetDataSourceContents(dataSetSourceRef.Reference).ConnectString;
+                var reportDataSources = server.GetItemReferences(filePath, DataSourceConstants.DataSource);
+                if (!dataSetToDataSourceMapping.TryGetValue(dataSet.Name, out string _))
+                {
+                    foreach (var reportDataSourceRef in reportDataSources)
+                    {
+                        var reportDataSource = server.GetDataSourceContents(reportDataSourceRef.Reference);
+                        var reportDataSourceConnectionString = reportDataSource.ConnectString;
+                        if (dataSourceConnectionString == reportDataSourceConnectionString)
+                        {
+                            dataSetToDataSourceMapping.Add(dataSet.Name, reportDataSourceRef.Name);
+                            break;
+                        }
+                    }
+
+                    if (!dataSetToDataSourceMapping.TryGetValue(dataSet.Name, out string _))
+                    {
+                        throw new Exception("No data source found!");
+                    }
+                }
+            }
+
             return retList;
+        }
+
+        public string GetDataSourceForDataSet(string dataSet)
+        {
+            dataSetToDataSourceMapping.TryGetValue(dataSet, out string dataSource);
+            return dataSource;
         }
 
         /// <summary>

@@ -43,9 +43,9 @@ namespace RdlMigration
         /// <param name="clientID">The clientID of the App registered with permissions of Reading/Writing dataset, report and Reading Workspaces.</param>
         public void ConvertFolder(string urlEndPoint, string inputPath, string workspaceName, string clientID)
         {
-            Trace("Starting the log-in window");
-            PowerBIClientWrapper powerBIClient = new PowerBIClientWrapper(workspaceName, clientID);
-            Trace("Log-in successfully, retrieving the reports...");
+            //Trace("Starting the log-in window");
+            //PowerBIClientWrapper powerBIClient = new PowerBIClientWrapper(workspaceName, clientID);
+            //Trace("Log-in successfully, retrieving the reports...");
 
             rdlFileIO = new RdlFileIO(urlEndPoint);
 
@@ -78,15 +78,32 @@ namespace RdlMigration
             while (reportPaths.Count > 0)
             {
                 string reportPath = reportPaths.Dequeue();
-                ConvertAndUploadReport(
-                    powerBIClient,
+                convertAndSaveToDisk(
                     rdlFileIO,
+                    urlEndPoint,
                     reportPath);
             }
         }
 
-        private void ConvertAndUploadReport(PowerBIClientWrapper powerBIClient, RdlFileIO rdlFileIO, string reportPath)
+        private void convertAndSaveToDisk(RdlFileIO rdlFileIO, string urlEndPoint, string reportPath)
         {
+            rdlFileIO = new RdlFileIO(urlEndPoint);
+
+            var reportName = Path.GetFileName(reportPath);
+            var report = rdlFileIO.DownloadRdl(reportPath);
+            SaveAndCopyStream(reportName, report, $"output\\{reportName}_original.rdl");
+
+            XElement[] dataSets = rdlFileIO.GetDataSets(reportPath, out Dictionary<KeyValuePair<string, string>, XElement> referenceDataSetMap);
+            DataSource[] dataSources = rdlFileIO.GetUniqueDataSources(reportPath);
+
+            var convertedFile = ConvertFile(reportPath, report, dataSources, referenceDataSetMap);
+            SaveAndCopyStream(reportName, convertedFile, $"output\\{reportName}_convert.rdl");
+        }
+
+        private void ConvertAndUploadReport(PowerBIClientWrapper powerBIClient, RdlFileIO rdlFileIO, string urlEndPoint, string reportPath)
+        {
+            rdlFileIO = new RdlFileIO(urlEndPoint);
+
             var reportName = Path.GetFileName(reportPath);
             var report = rdlFileIO.DownloadRdl(reportPath);
             SaveAndCopyStream(reportName, report, $"output\\{reportName}_original.rdl");
@@ -180,8 +197,8 @@ namespace RdlMigration
             XDocument doc = XDocument.Load(rdlFile);
 
             Stream outputFile = new MemoryStream();
-            ConvertFileWithDataSet(filePath, doc, dataSetDict);
             ConvertFileWithDataSource(doc, dataSources);
+            ConvertFileWithDataSet(filePath, doc, dataSetDict);
             DiscoverSubreports(doc).ForEach(reportPaths.Enqueue);
             doc.Save(outputFile);
             outputFile.Position = 0;
@@ -204,8 +221,8 @@ namespace RdlMigration
 
             string outputFileName = Path.Combine(outputPath, Path.GetFileNameWithoutExtension(rdlFilePath) + ReportFileExtension);
 
-            ConvertFileWithDataSet(rdlFilePath, doc, dataSetDict);
             ConvertFileWithDataSource(doc, dataSources);
+            ConvertFileWithDataSet(rdlFilePath, doc, dataSetDict);
             DiscoverSubreports(doc).ForEach(reportPaths.Enqueue);
             doc.Save(outputFileName);
 
@@ -275,7 +292,10 @@ namespace RdlMigration
                             var referenceNodes = currDataSetNode.Descendants(currDataSetNode.Name.Namespace + DataSetConstants.DataSourceReference);
                             if (referenceNodes.Count() != 0)
                             {
-                                string dataSetSourceName = RdlFileIO.SerializeDataSourceName(referenceNodes.ElementAt(0).Value);
+                                //string dataSetSourceName = RdlFileIO.SerializeDataSourceName(referenceNodes.ElementAt(0).Value);
+
+                                string dataSetSourceName = rdlFileIO.GetDataSourceForDataSet(datasetName);
+
                                 referenceNodes.ElementAt(0).ReplaceWith(new XElement(currDataSetNode.Name.Namespace + DataSetConstants.DataSourceName, dataSetSourceName));
                             }
 
