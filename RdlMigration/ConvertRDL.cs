@@ -197,8 +197,8 @@ namespace RdlMigration
             XDocument doc = XDocument.Load(rdlFile);
 
             Stream outputFile = new MemoryStream();
-            ConvertFileWithDataSource(doc, dataSources);
             ConvertFileWithDataSet(filePath, doc, dataSetDict);
+            ConvertFileWithDataSource(doc, dataSources);
             DiscoverSubreports(doc).ForEach(reportPaths.Enqueue);
             doc.Save(outputFile);
             outputFile.Position = 0;
@@ -221,8 +221,8 @@ namespace RdlMigration
 
             string outputFileName = Path.Combine(outputPath, Path.GetFileNameWithoutExtension(rdlFilePath) + ReportFileExtension);
 
-            ConvertFileWithDataSource(doc, dataSources);
             ConvertFileWithDataSet(rdlFilePath, doc, dataSetDict);
+            ConvertFileWithDataSource(doc, dataSources);
             DiscoverSubreports(doc).ForEach(reportPaths.Enqueue);
             doc.Save(outputFileName);
 
@@ -292,10 +292,9 @@ namespace RdlMigration
                             var referenceNodes = currDataSetNode.Descendants(currDataSetNode.Name.Namespace + DataSetConstants.DataSourceReference);
                             if (referenceNodes.Count() != 0)
                             {
-                                //string dataSetSourceName = RdlFileIO.SerializeDataSourceName(referenceNodes.ElementAt(0).Value);
-
-                                string dataSetSourceName = rdlFileIO.GetDataSourceForDataSet(datasetName);
-
+                                string dataSetSourceName = RdlFileIO.SerializeDataSourceName(referenceNodes.ElementAt(0).Value);
+                                //string dataSetSourceName = RdlFileIO.SerializeDataSourceName(datasetName);
+                                //string dataSetSourceName = rdlFileIO.GetDataSourceForDataSet(datasetName);
                                 referenceNodes.ElementAt(0).ReplaceWith(new XElement(currDataSetNode.Name.Namespace + DataSetConstants.DataSourceName, dataSetSourceName));
                             }
 

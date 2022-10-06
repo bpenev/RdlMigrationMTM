@@ -200,8 +200,8 @@ namespace RdlMigration
             foreach (var dataSet in server.GetItemReferences(filePath, DataSetConstants.DataSet))
             {
                 var dataSetSourceRef = server.GetItemReferences(dataSet.Reference, DataSourceConstants.DataSource).ElementAt(0);
-                var retListReferences = retList.Select(x => x.Reference).ToList();
-                if (!retListReferences.Contains(dataSetSourceRef.Reference))
+                //var retListReferences = retList.Select(x => x.Reference).ToList();
+                if (!retList.Contains(dataSetSourceRef))
                 {
                     // rewrite name of datasources referenced from datasets
                     string dataSourceName = SerializeDataSourceName(dataSetSourceRef.Reference);
@@ -377,13 +377,12 @@ namespace RdlMigration
         /// <returns>corresponding dataSource Name.</returns>
         public static string SerializeDataSourceName(string path)
         {
-
-            if (!dataSourceReferenceNameMap.TryGetValue(path, out string dataSourceName))
+            string remoteDataSourceName = path.Split('/').Last();
+            if (!dataSourceReferenceNameMap.TryGetValue(remoteDataSourceName, out string dataSourceName))
             {
-                string remoteDataSourceName = path.Split('/').Last();
                 remoteDataSourceName = new string(remoteDataSourceName.Where(x => char.IsLetterOrDigit(x) || x == '_').ToArray());
                 dataSourceName = DataSourceConstants.DataSource + '_' + remoteDataSourceName + '_' + Guid.NewGuid().ToString().Replace('-', '_');
-                dataSourceReferenceNameMap.TryAdd(path, dataSourceName);
+                dataSourceReferenceNameMap.TryAdd(remoteDataSourceName, dataSourceName);
             }
 
             return dataSourceName;
