@@ -20,17 +20,17 @@ namespace RdlMigration
     /// </summary>
     public class RdlFileIO
     {
-        private static ConcurrentDictionary<string, string> dataSourceReferenceNameMap;
-        private readonly IReportingService2010 server;
+        private static ConcurrentDictionary<string, Tuple<string, string>> dataSourceReferenceNameMap;
+        private static IReportingService2010 server;
 
         static RdlFileIO()
         {
-            dataSourceReferenceNameMap = new ConcurrentDictionary<string, string>();
+            dataSourceReferenceNameMap = new ConcurrentDictionary<string, Tuple<string, string>>();
         }
 
         public RdlFileIO(string urlEndpoint)
         {
-            server = new ReportServerApi.ReportingService2010
+            server = new ReportingService2010
             {
                 Url = urlEndpoint + SoapApiConstants.SOAPApiExtension,
                 UseDefaultCredentials = true
@@ -185,7 +185,8 @@ namespace RdlMigration
         public List<ItemReferenceData> GetDataSourceReference(string filePath)
         {
             var retList = new List<ItemReferenceData>();
-            foreach (var reference in server.GetItemReferences(filePath, DataSourceConstants.DataSource))
+            var serverDataSourceReferences = server.GetItemReferences(filePath, DataSourceConstants.DataSource);
+            foreach (var reference in serverDataSourceReferences)
             {
                 if (reference.Reference == null)
                 {
@@ -194,21 +195,57 @@ namespace RdlMigration
                 retList.Add(reference);
             }
 
-            foreach (var dataSet in server.GetItemReferences(filePath, DataSetConstants.DataSet))
+            foreach(var dataSet in server.GetItemReferences(filePath, DataSetConstants.DataSet))
             {
                 var dataSetSourceRef = server.GetItemReferences(dataSet.Reference, DataSourceConstants.DataSource).ElementAt(0);
-                if (!retList.Contains(dataSetSourceRef))
+                var retListReferences = retList.Select(x => x.Reference).ToList();
+
+                if (!retListReferences.Contains(dataSetSourceRef.Reference))
                 {
                     // rewrite name of datasources referenced from datasets
-                    string dataSourceName = SerializeDataSourceName(dataSetSourceRef.Reference);
-                    dataSetSourceRef.Name = dataSourceName;
+                    string dataSourceName = SerializeDataSourceName(dataSetSourceRef.Reference, null, filePath);
 
-                    retList.Add(dataSetSourceRef);
+                    if (!ReportDataSourceExists(filePath, dataSetSourceRef) && !retListReferences.Contains(dataSourceName))
+                    {
+                        dataSetSourceRef.Name = dataSourceName;
+                        retList.Add(dataSetSourceRef);
+                    }
                 }
             }
 
             return retList;
         }
+
+        private static bool ReportDataSourceExists(string filePath, ItemReferenceData dataSetSourceRef)
+        {
+            bool reportDataSourceExists = false;
+            if ((server as ReportingService2010) != null)
+            {
+                var dataSourceConnectionString = server.GetDataSourceContents(dataSetSourceRef.Reference).ConnectString;
+                var reportDataSources = (server as ReportingService2010).GetItemDataSources(filePath);
+                foreach (var reportDataSource in reportDataSources)
+                {
+                    string connString;
+                    if ((reportDataSource.Item as DataSourceDefinition) != null)
+                    {
+                        connString = (reportDataSource.Item as DataSourceDefinition).ConnectString;
+                    }
+                    else
+                    {
+                        connString = server.GetDataSourceContents((reportDataSource.Item as DataSourceReference).Reference).ConnectString;
+                    }
+
+                    if (dataSourceConnectionString == connString)
+                    {
+                        reportDataSourceExists = true;
+                        break;
+                    }
+                }
+            }
+
+            return reportDataSourceExists;
+        }
+
 
         /// <summary>
         /// Gets the dataSource from a server.
@@ -338,18 +375,75 @@ namespace RdlMigration
         /// </summary>
         /// <param name="path">teh dataSource reference.</param>
         /// <returns>corresponding dataSource Name.</returns>
-        public static string SerializeDataSourceName(string path)
+        public static string SerializeDataSourceName(string path, string remoteDataSetPath = null, string filePath = null)
         {
+            string remoteDataSourceName = path.Split('/').Last();
+            string dataSourceNameString = null;
 
-            if (!dataSourceReferenceNameMap.TryGetValue(path, out string dataSourceName))
+            if (remoteDataSetPath != null && filePath != null)
             {
-                string remoteDataSourceName = path.Split('/').Last();
-                remoteDataSourceName = new string(remoteDataSourceName.Where(x => char.IsLetterOrDigit(x) || x == '_').ToArray());
-                dataSourceName = DataSourceConstants.DataSource + '_' + remoteDataSourceName + '_' + Guid.NewGuid().ToString().Replace('-', '_');
-                dataSourceReferenceNameMap.TryAdd(path, dataSourceName);
+                var reportDataSource = GetReportDataSourceForRemoteDataSet(remoteDataSetPath, filePath);
+                if (reportDataSource != null)
+                {
+                    dataSourceReferenceNameMap.TryAdd(remoteDataSourceName, new Tuple<string, string>(reportDataSource, null));
+                    return reportDataSource;
+                } else
+                {
+                    path = (server as ReportingService2010).GetItemReferences(remoteDataSetPath, DataSourceConstants.DataSource).First().Reference;
+                }
             }
 
-            return dataSourceName;
+            if (!dataSourceReferenceNameMap.TryGetValue(remoteDataSourceName, out Tuple<string, string> dataSourceName))
+            {
+                if ((server as ReportingService2010) != null)
+                {
+                    var dataSource = server.GetDataSourceContents(path);
+                    var connectionString = dataSource.ConnectString;
+
+                    foreach (var mapDataSource in dataSourceReferenceNameMap)
+                    {
+                        var mapDataSourceName = mapDataSource.Value.Item2;
+                        var mapDataSourceContents = server.GetDataSourceContents(mapDataSourceName);
+                        if (connectionString == mapDataSourceContents.ConnectString)
+                        {
+                            return mapDataSource.Value.Item1;
+                        }
+                    }
+                }
+
+                remoteDataSourceName = new string(remoteDataSourceName.Where(x => char.IsLetterOrDigit(x) || x == '_').ToArray());
+                dataSourceNameString = DataSourceConstants.DataSource + '_' + remoteDataSourceName + '_' + Guid.NewGuid().ToString().Replace('-', '_');
+                dataSourceReferenceNameMap.TryAdd(remoteDataSourceName, new Tuple<string, string>(dataSourceNameString, path));
+
+                return dataSourceNameString;
+            }
+
+            return dataSourceName.Item1;
+        }
+
+        public static string GetReportDataSourceForRemoteDataSet(string remoteDataSetPath, string filePath)
+        {
+            var reportDataSources = (server as ReportingService2010).GetItemDataSources(filePath);
+            foreach (var reportDataSource in reportDataSources)
+            {
+                string connString;
+                if ((reportDataSource.Item as DataSourceDefinition) != null)
+                {
+                    connString = (reportDataSource.Item as DataSourceDefinition).ConnectString;
+                }
+                else
+                {
+                    connString = server.GetDataSourceContents((reportDataSource.Item as DataSourceReference).Reference).ConnectString;
+                }
+
+                var remoteConnStr = server.GetDataSourceContents(((DataSourceReference)(server as ReportingService2010).GetItemDataSources(remoteDataSetPath)[0].Item).Reference).ConnectString;
+                if (remoteConnStr == connString)
+                {
+                    return reportDataSource.Name;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

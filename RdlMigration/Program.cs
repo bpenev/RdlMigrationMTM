@@ -23,6 +23,19 @@ namespace RdlMigration
                     Console.Read();
                 }
             }
+            else if (args.Count() == 2)
+            {
+                var app = new ConvertRDL();
+                try
+                {
+                    app.ConvertFolder(args[0], args[1]);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.Message);
+                    Console.Read();
+                }
+            }
             else
             {
                 DisplayUsage();
