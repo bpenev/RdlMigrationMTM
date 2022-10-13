@@ -87,6 +87,10 @@ namespace RdlMigration
             {
                 string reportPath = reportPaths.Dequeue();
 
+                Console.WriteLine($"Converting {reportPath}");
+                
+                rdlFileIO = new RdlFileIO(urlEndPoint);
+
                 if (powerBIClient != null)
                 {
                     ConvertAndUploadReport(

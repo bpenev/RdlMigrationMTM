@@ -30,15 +30,19 @@ namespace RdlMigration
 
         public RdlFileIO(string urlEndpoint)
         {
+            dataSourceReferenceNameMap = new ConcurrentDictionary<string, Tuple<string, string>>();
             server = new ReportingService2010
             {
                 Url = urlEndpoint + SoapApiConstants.SOAPApiExtension,
                 UseDefaultCredentials = true
             };
+
+            
         }
 
         public RdlFileIO(IReportingService2010 reportserver)
         {
+            dataSourceReferenceNameMap = new ConcurrentDictionary<string, Tuple<string, string>>();
             server = reportserver;
         }
 
